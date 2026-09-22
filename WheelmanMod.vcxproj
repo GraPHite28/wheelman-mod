@@ -1,0 +1,145 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|Win32">
+      <Configuration>Debug</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|Win32">
+      <Configuration>Release</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+
+  <PropertyGroup Label="Globals">
+    <VCProjectVersion>17.0</VCProjectVersion>
+    <ProjectGuid>{6B2F1A10-6C1E-4E1E-9C2A-2E1C7B3A9001}</ProjectGuid>
+    <RootNamespace>WheelmanMod</RootNamespace>
+    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+  </PropertyGroup>
+
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+
+  <PropertyGroup Label="Configuration">
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
+    <PlatformToolset>$(DefaultPlatformToolset)</PlatformToolset>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)'=='Debug'" Label="Configuration">
+    <UseDebugLibraries>true</UseDebugLibraries>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)'=='Release'" Label="Configuration">
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <WholeProgramOptimization>true</WholeProgramOptimization>
+  </PropertyGroup>
+
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+
+  <PropertyGroup>
+    <OutDir>$(SolutionDir)bin\$(Platform)\$(Configuration)\</OutDir>
+    <IntDir>$(SolutionDir)obj\$(Platform)\$(Configuration)\$(ProjectName)\</IntDir>
+    <TargetName>WheelmanMod</TargetName>
+  </PropertyGroup>
+
+  <ItemDefinitionGroup Condition="'$(Configuration)'=='Debug'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <Optimization>Disabled</Optimization>
+      <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
+      <LanguageStandard>stdcpp17</LanguageStandard>
+      <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
+      <AdditionalIncludeDirectories>$(ProjectDir)imgui;$(ProjectDir)imgui\backends;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>WIN32;_DEBUG;_WINDOWS;_USRDLL;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+    <Link>
+      <SubSystem>Windows</SubSystem>
+      <AdditionalDependencies>d3d9.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+  </ItemDefinitionGroup>
+
+  <ItemDefinitionGroup Condition="'$(Configuration)'=='Release'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <Optimization>MaxSpeed</Optimization>
+      <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
+      <LanguageStandard>stdcpp17</LanguageStandard>
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+      <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
+      <AdditionalIncludeDirectories>$(ProjectDir)imgui;$(ProjectDir)imgui\backends;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>WIN32;NDEBUG;_WINDOWS;_USRDLL;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+    <Link>
+      <SubSystem>Windows</SubSystem>
+      <EnableCOMDATFolding>true</EnableCOMDATFolding>
+      <OptimizeReferences>true</OptimizeReferences>
+      <AdditionalDependencies>d3d9.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+  </ItemDefinitionGroup>
+
+  <ItemGroup>
+    <ClCompile Include="dllmain.cpp" />
+    <ClCompile Include="D3DHook.cpp" />
+    <ClCompile Include="IATHook.cpp" />
+    <ClCompile Include="InputHook.cpp" />
+    <ClCompile Include="Overlay.cpp" />
+    <ClCompile Include="Patches.cpp" />
+    <ClCompile Include="ESP.cpp" />
+    <ClCompile Include="Police.cpp" />
+    <ClCompile Include="Npc.cpp" />
+    <ClCompile Include="Aimbot.cpp" />
+    <ClCompile Include="NpcMod.cpp" />
+    <ClCompile Include="Spawner.cpp" />
+    <ClCompile Include="Binds.cpp" />
+    <ClCompile Include="Lang.cpp" />
+    <ClCompile Include="BuiltinCheats.cpp" />
+    <ClCompile Include="MapTools.cpp" />
+    <ClCompile Include="MiniMap.cpp" />
+    <ClCompile Include="Nav.cpp" />
+    <ClCompile Include="LoadGuard.cpp" />
+    <ClCompile Include="KismetVars.cpp" />
+    <ClCompile Include="GameConsole.cpp" />
+    <ClCompile Include="GfxBoost.cpp" />
+    <ClCompile Include="PostFx.cpp" />
+    <ClCompile Include="MouseLook.cpp" />
+    <ClCompile Include="CrimeTools.cpp" />
+    <ClCompile Include="Weapons.cpp" />
+    <ClCompile Include="Theme.cpp" />
+    <ClCompile Include="WeaponMod.cpp" />
+    <ClCompile Include="CrashHandler.cpp" />
+    <ClCompile Include="Perf.cpp" />
+    <ClCompile Include="VehicleMod.cpp" />
+    <ClCompile Include="Log.cpp" />
+    <ClCompile Include="imgui\imgui.cpp" />
+    <ClCompile Include="imgui\imgui_draw.cpp" />
+    <ClCompile Include="imgui\imgui_tables.cpp" />
+    <ClCompile Include="imgui\imgui_widgets.cpp" />
+    <ClCompile Include="imgui\imgui_demo.cpp" />
+    <ClCompile Include="imgui\backends\imgui_impl_win32.cpp" />
+    <ClCompile Include="imgui\backends\imgui_impl_dx9.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="Offsets.h" />
+    <ClInclude Include="Patches.h" />
+    <ClInclude Include="ESP.h" />
+    <ClInclude Include="Police.h" />
+    <ClInclude Include="Npc.h" />
+    <ClInclude Include="Aimbot.h" />
+    <ClInclude Include="NpcMod.h" />
+    <ClInclude Include="Spawner.h" />
+    <ClInclude Include="Binds.h" />
+    <ClInclude Include="Weapons.h" />
+    <ClInclude Include="Theme.h" />
+    <ClInclude Include="WeaponMod.h" />
+    <ClInclude Include="CrashHandler.h" />
+    <ClInclude Include="Perf.h" />
+    <ClInclude Include="VehicleMod.h" />
+    <ClInclude Include="D3DHook.h" />
+    <ClInclude Include="IATHook.h" />
+    <ClInclude Include="InputHook.h" />
+    <ClInclude Include="Overlay.h" />
+    <ClInclude Include="Log.h" />
+  </ItemGroup>
+
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+</Project>

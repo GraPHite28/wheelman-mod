@@ -1,0 +1,53 @@
+# ---- build output --------------------------------------------------------------------------------------------------------
+bin/
+obj/
+**/bin/
+**/obj/
+.vs/
+*.user
+*.suo
+*.pdb
+*.ilk
+*.exp
+*.tlog
+*.log
+*.obj
+*.res
+*.idb
+*.ipdb
+*.iobj
+
+# ---- files generated on the player's machine ----------------------------------------------------------------------------
+# The map picture, the marker icons and the road mask are created from the player's own copy of the game (Launcher button /
+# tools\MapDataBuilder). They are the game's artwork and must never be committed.
+MapData/
+unpacked/
+crashes/
+configs/
+WheelmanMod_settings.txt
+WheelmanMod_windows.ini
+WheelmanMod_vehicle_labels.txt
+Launcher.ini
+Injector.ini
+imgui.ini
+notify.log
+build_log.txt
+
+# ---- game files and dumps: NEVER commit ---------------------------------------------------------------------------------
+*.xxx
+*.upk
+*.bik
+*.swf
+*.dds
+*.dxt1
+*.bgra
+Coalesced.ini*
+Docs/core_classes.txt
+Docs/vehicle_templates.tsv
+
+# ---- third-party programs that are downloaded, not stored here -----------------------------------------------------------
+ReShade*
+reshade-shaders/
+d3d9.dll
+*.dll
+!tools/MapDataBuilder/lib/*.dll
