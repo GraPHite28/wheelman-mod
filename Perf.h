@@ -10,4 +10,6 @@ namespace Perf
     extern float measuredFps;   // smoothed, for the UI
 
     void Throttle();            // call once per frame, after the real EndScene
+    void Resync();              // call after a gap where Throttle() was not called (e.g. LoadGuard was quiet):
+                                 // resets the pacing baseline to "now" instead of catching up
 }

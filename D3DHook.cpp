@@ -274,7 +274,7 @@ namespace
 
     HRESULT __stdcall hkDrawIndexedPrimitive(IDirect3DDevice9* self, D3DPRIMITIVETYPE type, INT baseVertex, UINT minVertex, UINT numVertices, UINT startIndex, UINT primCount)
     {
-        PostFx::OnDraw();   // camera projection snapshot after a depth surface was bound; draw counter per depth surface
+        PostFx::OnDraw(self);   // camera projection snapshot after a depth surface was bound; draw counter per depth surface
         if (g_capState == 2) LogDraw(self, "DIP", type, primCount, baseVertex, numVertices, startIndex);
         // Only the shadow map pass draws with a non-zero depth bias (every other pass in the capture has bias 0).
         if (g_shadowBiasScale != 1.0f || g_shadowSlopeScale != 1.0f)
@@ -362,8 +362,17 @@ namespace
         // ticks that change game memory, code patches switched off, no frame limiter). The overlay, the menu and the maps
         // stay: they only read, and what the user edits by hand in the menu is the user's own action.
         static PatchState savedPatches; static bool patchesSuspended = false;
+        static bool wasQuiet = false;
         LoadGuard::Update();
         const bool quiet = LoadGuard::Quiet();
+        // Throttle() is skipped entirely while quiet (see below), so its pacing baseline goes stale for as long as
+        // that lasts; resync it the moment ticking resumes instead of leaving it to "catch up" from a large gap.
+        // Found live, 2026-09-24: with loading protection turned off (so this transition, and the resync, never
+        // happens) the frame limiter could end up not actually pacing anymore after a big frame-time spike, and the
+        // game's own physics (tied to frame rate - see Perf.h) started showing its high-FPS bugs despite the target
+        // still reading 60; toggling the limiter off and on by hand "fixed" it, which is exactly a manual resync.
+        if (wasQuiet && !quiet) Perf::Resync();
+        wasQuiet = quiet;
         if (quiet)
         {
             if (!patchesSuspended) { savedPatches = g_patches; g_patches = PatchState(); patchesSuspended = true; }
