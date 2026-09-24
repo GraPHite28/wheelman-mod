@@ -12,6 +12,10 @@ namespace MouseLook
     extern float sensitivity;        // degrees of rotation per mouse count
     extern float aimScale;           // multiplier of the sensitivity while the right mouse button (aiming) is held
     extern bool invertY;
+    // Bind this to a key in "Hold" mode (right-click the checkbox in the menu) to let go of the mouse for the game's
+    // own menus (the PDA, pause) without turning the feature off: the game's PDA cursor rides on the same raw mouse
+    // motion this mode normally diverts to itself, so there is no other way for the game to see it while this is on.
+    extern bool suspended;
     extern volatile long active;     // 1 while the on-foot camera is valid and the raw motion is taken over (read by the input hooks)
     extern volatile long accX, accY; // raw mouse counts collected by the input hooks since the last Tick
     extern const char* status;

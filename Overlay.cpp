@@ -1362,6 +1362,8 @@ namespace Overlay
         ImGui::SetNextItemWidth(240); ImGui::SliderFloat("Sensitivity while aiming (right mouse button held)", &MouseLook::aimScale, 0.10f, 1.50f, "x%.2f");
         Binds::Check("Invert vertical axis", &MouseLook::invertY);
         ImGui::TextDisabled("The on-foot camera turns straight from the mouse instead of the game's emulated controller stick: no dead zone, acceleration or smoothing. In a vehicle and in cut-scenes the mouse works as in the game.");
+        Binds::Check("Free the mouse (hold)", &MouseLook::suspended);
+        ImGui::TextDisabled("Right-click this and bind a key in \"Hold\" mode to let go of the camera and use the mouse in the game's own menus (the PDA, pause) while this is held.");
         if (debugEnabled) ImGui::TextDisabled("%s", MouseLook::status);
 
         ImGui::SeparatorText("Noclip / fly");
@@ -1697,6 +1699,69 @@ namespace Overlay
                 }
             }
             ImGui::EndChild();
+        }
+
+        // Found 2026-09-24 by live-sampling the mode struct while walking vs. sprinting: the camera boom distance
+        // (+0x048/+0x0F4/+0x16C, 500 walk -> 400 run) and a FOV/pitch-limit-looking value (+0x050/+0x104/+0x17C,
+        // 60 -> 70) swap to a "run" profile the moment you start sprinting; +0x0A8/+0x0F4/+0x104/+0x1C0 visibly
+        // interpolate towards the new profile over about a second, the rest (+0x038/+0x044/+0x0C0/+0x0D8/+0x120/
+        // +0x138/+0x150) swap outright. +0x274 is 1.0 while walking/idle and flips to 0.4 the instant you sprint,
+        // with no interpolation at all - the likeliest single "how tightly the camera tracks while running" knob,
+        // but not yet proven against how it actually feels in play. Not independently confirmed beyond this one
+        // recording - please correlate live (e.g. push +0x274 towards 1.0 while sprinting and see if that is the
+        // "rigid" feeling) rather than trusting the labels blindly.
+        int32_t modePtr = 0;
+        if (SafeReadInt(cam, 0x47C, modePtr) && static_cast<uint32_t>(modePtr) > 0x10000)
+        {
+            void* mode = reinterpret_cast<void*>(static_cast<uintptr_t>(static_cast<uint32_t>(modePtr)));
+            ImGui::SeparatorText("Camera mode struct - walk/run profile (experimental, found live)");
+            ImGui::TextDisabled("mode @ 0x%08X. Edit live while playing and watch the effect; see the comment above this section in Overlay.cpp for what was observed.", static_cast<uint32_t>(modePtr));
+            static const struct { int off; const char* n; } fields[] = {
+                { 0x038, "swap A (+0x038)" }, { 0x044, "swap B (+0x044)" },
+                { 0x048, "distance, slot 1 target (+0x048)" }, { 0x050, "FOV/pitch limit, slot 1 target (+0x050)" },
+                { 0x0A8, "interpolated current A (+0x0A8)" },
+                { 0x0C0, "swap C (+0x0C0)" }, { 0x0D8, "swap D (+0x0D8)" },
+                { 0x0F4, "distance, interpolated current (+0x0F4)" }, { 0x104, "FOV/pitch limit, interpolated current (+0x104)" },
+                { 0x120, "swap E (+0x120)" }, { 0x138, "swap F (+0x138)" }, { 0x150, "swap G (+0x150)" },
+                { 0x16C, "distance, slot 2 target (+0x16C)" }, { 0x17C, "FOV/pitch limit, slot 2 target (+0x17C)" },
+                { 0x1C0, "interpolated current B (+0x1C0)" },
+                { 0x274, "profile weight: 1.0 walk/idle, 0.4 while running (+0x274)" },
+            };
+            for (const auto& fdef : fields)
+            {
+                float v = 0.f;
+                ImGui::PushID(fdef.off + 0x10000);
+                if (SafeReadFloat(mode, fdef.off, v) && ImGui::InputFloat(fdef.n, &v, 0.1f, 1.f))
+                    SafeWriteFloat(mode, fdef.off, v);
+                ImGui::PopID();
+            }
+            if (ImGui::CollapsingHeader("Raw camera MODE memory (+0x000..+0x300, editable as int32)"))
+            {
+                ImGui::BeginChild("ModeRaw", ImVec2(0, 300), true);
+                ImGuiListClipper modeClipper;
+                modeClipper.Begin(0x300 / 4);
+                while (modeClipper.Step())
+                {
+                    for (int i = modeClipper.DisplayStart; i < modeClipper.DisplayEnd; ++i)
+                    {
+                        int32_t v = 0;
+                        ImGui::PushID(i + 0x20000);
+                        if (SafeReadInt(mode, i * 4, v))
+                        {
+                            float f;
+                            memcpy(&f, &v, 4);
+                            ImGui::Text("+0x%03X  0x%08X  %.4g", i * 4, static_cast<uint32_t>(v), f);
+                            ImGui::SameLine(300);
+                            ImGui::SetNextItemWidth(110);
+                            int32_t edit = v;
+                            if (ImGui::InputInt("##w", &edit, 0, 0))
+                                SafeWriteInt(mode, i * 4, edit);
+                        }
+                        ImGui::PopID();
+                    }
+                }
+                ImGui::EndChild();
+            }
         }
         ImGui::Separator();
     }
@@ -2435,13 +2500,47 @@ namespace Overlay
             PostFx::fogStrength = 1.0f; PostFx::fogStart = 215.0f; PostFx::fogDistance = 483.0f; PostFx::fogR = 154.0f / 255.0f; PostFx::fogG = 198.0f / 255.0f; PostFx::fogB = 226.0f / 255.0f;
             PostFx::dofAmount = 2.0f; PostFx::dofFocus = 112.0f; PostFx::dofZone = 100.0f; PostFx::dofTransition = 200.0f; PostFx::dofAuto = false;
             PostFx::fxaa = 1.0f; PostFx::sharpen = 0.35f; PostFx::saturation = 1.0f; PostFx::contrast = 1.0f; PostFx::gamma = 1.0f;
-            PostFx::aoStrength = 1.0f; PostFx::aoRadius = 77.0f; PostFx::aoBias = 0.0f; PostFx::aoMaxDistance = 30000.0f;
+            PostFx::aoStrength = 0.45f; PostFx::aoRadius = 72.0f; PostFx::aoBias = 0.20f; PostFx::aoMaxDistance = 21146.0f;
+            PostFx::ssrEnabled = false; PostFx::ssrStrength = 0.16f; PostFx::ssrStepCm = 200.0f; PostFx::ssrMaxDistanceCm = 9136.0f; PostFx::ssrGroundBias = 0.85f;
+            PostFx::fakeRTEnabled = false; PostFx::fakeRTStrength = 0.18f; PostFx::fakeRTRoughness = 0.87f; PostFx::fakeRTStepCm = 2.0f; PostFx::fakeRTMaxDistanceCm = 8000.0f;
+            PostFx::fakeRTRayCount = 8; PostFx::fakeRTStepCount = 16; PostFx::fakeRTBounces = 3;
+            PostFx::fakeRTTemporal = false; PostFx::fakeRTTemporalWeight = 0.85f;
         }
+        ImGui::SeparatorText("Fake ray-traced lighting (Beta)");
+        Binds::Check("Enable fake ray-traced lighting (Beta)", &PostFx::fakeRTEnabled);
+        ImGui::TextDisabled("Fine-tuning (rays/steps/bounces/temporal) is in the debug tools below.");
         if (!debugEnabled) return;   // everything below is diagnostics / developer tools
         ImGui::Checkbox("Show the depth (debug)", &PostFx::debugDepth); ImGui::SameLine();
-        ImGui::Checkbox("Show the occlusion only (debug)", &PostFx::debugAO);
+        ImGui::Checkbox("Show the occlusion only (debug)", &PostFx::debugAO); ImGui::SameLine();
+        ImGui::Checkbox("Show the fake-RT bounce only (debug)", &PostFx::debugFakeRT);
         ImGui::TextDisabled("%s", PostFx::depthStatus);
         ImGui::TextDisabled("One set of shaders over the finished picture (including the HUD). The scene depth is read by turning the game's depth buffer into an INTZ texture.");
+
+        ImGui::SeparatorText("Screen-space reflections (experimental, crude first pass)");
+        ImGui::TextDisabled("Ray-marches the depth buffer with a normal guessed from it (there is no real material/roughness data), so it reflects every surface by the same amount - expect it to look wrong on matte surfaces. Here to check the reflections line up before chasing a real material signal.");
+        Binds::Check("Enable SSR (Beta)", &PostFx::ssrEnabled);
+        ImGui::SetNextItemWidth(240); ImGui::SliderFloat("Strength##ssr", &PostFx::ssrStrength, 0.0f, 1.0f, "%.2f");
+        ImGui::SetNextItemWidth(240); ImGui::SliderFloat("First step (cm)##ssr", &PostFx::ssrStepCm, 2.0f, 500.0f, "%.0f");
+        ImGui::SetNextItemWidth(240); ImGui::SliderFloat("Max distance (cm)##ssr", &PostFx::ssrMaxDistanceCm, 200.0f, 20000.0f, "%.0f");
+        ImGui::SetNextItemWidth(240); ImGui::SliderFloat("Ground bias##ssr", &PostFx::ssrGroundBias, 0.0f, 1.0f, "%.2f");
+        ImGui::TextDisabled("No real material data exists, so this is a stand-in: favours near-horizontal surfaces (road, floor - usually the ones that look wet anyway) over near-vertical ones (walls, awnings), instead of reflecting everything the same.");
+
+        ImGui::SeparatorText("Fake ray-traced lighting (experimental, Beta)");
+        ImGui::TextDisabled("Casts several real multi-step rays per pixel in a cone around the reflection/normal direction (roughness controls how wide) and picks up the hit surface's own colour, weighted by the light-facing angle at both ends - a rough one-bounce light estimate, not a mirror copy. Adds light, does not replace anything the game already draws. The enable checkbox is above, outside the debug tools.");
+        ImGui::SetNextItemWidth(240); ImGui::SliderFloat("Strength##fakert", &PostFx::fakeRTStrength, 0.0f, 1.0f, "%.2f");
+        ImGui::SetNextItemWidth(240); ImGui::SliderFloat("Roughness##fakert", &PostFx::fakeRTRoughness, 0.0f, 1.0f, "%.2f");
+        ImGui::SetNextItemWidth(240); ImGui::SliderFloat("First step (cm)##fakert", &PostFx::fakeRTStepCm, 2.0f, 300.0f, "%.0f");
+        ImGui::SetNextItemWidth(240); ImGui::SliderFloat("Max distance (cm)##fakert", &PostFx::fakeRTMaxDistanceCm, 200.0f, 8000.0f, "%.0f");
+        ImGui::TextDisabled("Roughness 0 = tight around the mirror reflection (sharp fake reflection); 1 = spread around the surface normal (diffuse bounced light).");
+        ImGui::TextDisabled("Linked to SSAO above: the bounce light is scaled down wherever SSAO already darkens the picture, so an occluded corner does not get un-occluded by the light it adds on top.");
+        ImGui::SetNextItemWidth(240); ImGui::SliderInt("Rays per pixel##fakert", &PostFx::fakeRTRayCount, 1, 8);
+        ImGui::SetNextItemWidth(240); ImGui::SliderInt("Steps per ray##fakert", &PostFx::fakeRTStepCount, 2, 16);
+        ImGui::SetNextItemWidth(240); ImGui::SliderInt("Ray bounces##fakert", &PostFx::fakeRTBounces, 1, 3);
+        ImGui::TextDisabled("More rays/steps/bounces = smoother and more accurate, at a roughly linear (bounces: multiplying) GPU cost. 4/8/1 is the original single-bounce behaviour.");
+        Binds::Check("Temporal reprojection (experimental)##fakert", &PostFx::fakeRTTemporal);
+        ImGui::SetNextItemWidth(240); ImGui::SliderFloat("History weight##fakert", &PostFx::fakeRTTemporalWeight, 0.0f, 0.97f, "%.2f");
+        ImGui::TextDisabled("No camera motion data exists to reproject with - this just blends the same screen pixel across frames and falls back to the fresh frame wherever the depth under it changed too much. Reduces flicker while the camera holds still; expect smearing/ghosting during fast motion or while driving.");
+
         ImGui::SeparatorText("Engine console commands");
         ImGui::TextDisabled("The game has the usual Unreal 3 console commands but no console. The commands run, but most have no visible effect in this build (the rendering ignores them).");
         ImGui::SeparatorText("Shadows and lighting");
@@ -3127,6 +3226,7 @@ namespace Overlay
         RegisterFloat("cam.sens", &MouseLook::sensitivity);
         RegisterFloat("cam.aimscale", &MouseLook::aimScale);
         RegisterToggle("cam.inverty", "Camera: invert the vertical axis", "Player", &MouseLook::invertY);
+        RegisterToggle("cam.suspend", "Camera: free the mouse (hold)", "Player", &MouseLook::suspended);
         RegisterToggle("post.enabled","Graphics: post-processing (FXAA, sharpening, colour)", "Visuals", &PostFx::enabled);
         RegisterFloat("post.fxaa", &PostFx::fxaa);
         RegisterFloat("post.sharpen", &PostFx::sharpen);
@@ -3148,6 +3248,21 @@ namespace Overlay
         RegisterFloat("post.dofzone", &PostFx::dofZone);
         RegisterFloat("post.doftransition", &PostFx::dofTransition);
         RegisterToggle("post.dofauto", "Graphics: depth of field follows the screen centre", "Visuals", &PostFx::dofAuto);
+        RegisterToggle("post.ssr", "Graphics: screen-space reflections (experimental)", "Visuals", &PostFx::ssrEnabled);
+        RegisterFloat("post.ssrstrength", &PostFx::ssrStrength);
+        RegisterFloat("post.ssrstep", &PostFx::ssrStepCm);
+        RegisterFloat("post.ssrmax", &PostFx::ssrMaxDistanceCm);
+        RegisterFloat("post.ssrground", &PostFx::ssrGroundBias);
+        RegisterToggle("post.fakert", "Graphics: fake ray-traced lighting (experimental)", "Visuals", &PostFx::fakeRTEnabled);
+        RegisterFloat("post.fakertstrength", &PostFx::fakeRTStrength);
+        RegisterFloat("post.fakertroughness", &PostFx::fakeRTRoughness);
+        RegisterFloat("post.fakertstep", &PostFx::fakeRTStepCm);
+        RegisterFloat("post.fakertmax", &PostFx::fakeRTMaxDistanceCm);
+        RegisterInt("post.fakertrays", &PostFx::fakeRTRayCount);
+        RegisterInt("post.fakertsteps", &PostFx::fakeRTStepCount);
+        RegisterInt("post.fakertbounces", &PostFx::fakeRTBounces);
+        RegisterToggle("post.fakerttemporal", "Graphics: fake ray-traced lighting temporal reprojection (experimental)", "Visuals", &PostFx::fakeRTTemporal);
+        RegisterFloat("post.fakerttemporalweight", &PostFx::fakeRTTemporalWeight);
         RegisterInt("graphics.aniso", &GfxBoost::anisotropy);
         RegisterFloat("graphics.lodbias", &GfxBoost::lodBias);
         RegisterInt("graphics.skymode", &g_skyMode);

@@ -17,6 +17,13 @@ namespace Perf
         DWORD g_lastRefresh = 0;
     }
 
+    void Resync()
+    {
+        if (!g_init) return;
+        QueryPerformanceCounter(&g_last);
+        g_lastFrame = g_last;
+    }
+
     void Throttle()
     {
         if (!g_init)

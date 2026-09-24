@@ -178,3 +178,16 @@ namespace Offsets
     constexpr int Vehicle_PaintObjectPtr  = 0x170;
     constexpr int Vehicle_PaintIndexOffset = 0x24;
 }
+
+// Fixed absolute addresses (not struct-relative offsets): the module always loads at 0x400000 (no ASLR, confirmed by
+// InstallGamePatches' own "module base=0x00400000" log line), so these are stable run to run for this game build.
+namespace Globals
+{
+    // int32, 1 while the PDA overlay screen is open, 0 otherwise. Found live 2026-09-25 by snapshotting the whole
+    // writable address space (~600 MB) several times with the PDA open and several times closed, and keeping only
+    // the addresses that flipped the exact same way (open value constant, closed value constant, different between
+    // the two) on every single cycle - three independent open/closed cycles agreed, and a direct poll afterwards
+    // showed it flip cleanly and immediately on every toggle. Lives inside Wheelman.exe's own module (offset
+    // 0x135CCE0), not on the heap, so it does not depend on allocation order/session.
+    constexpr uintptr_t PdaOpen = 0x0175CCE0;
+}

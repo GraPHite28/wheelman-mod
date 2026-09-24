@@ -11,6 +11,7 @@ namespace MouseLook
     float sensitivity = 0.05f;
     float aimScale = 0.5f;
     bool invertY = false;
+    bool suspended = false;
     volatile long active = 0;
     volatile long accX = 0, accY = 0;
     const char* status = "off";
@@ -35,10 +36,10 @@ namespace MouseLook
     // Render thread: decides whether the mode may be used and tells the input hooks to hand over the raw motion.
     void Tick()
     {
-        if (!enabled || Overlay::wantMouseCapture || LoadGuard::Quiet())
+        if (!enabled || suspended || Overlay::wantMouseCapture || LoadGuard::Quiet())
         {
             Deactivate();
-            status = enabled ? "waiting (menu / loading)" : "off";
+            status = !enabled ? "off" : suspended ? "suspended (mouse released to the game)" : "waiting (menu / loading)";
             return;
         }
         uintptr_t mode = 0;
