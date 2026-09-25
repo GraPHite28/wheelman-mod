@@ -35,6 +35,8 @@ float g_shadowBiasScale = 1.0f, g_shadowSlopeScale = 1.0f;
 int g_viewportWidth = 1920;
 int g_viewportHeight = 1080;
 
+bool g_catchMainLoopExceptions = false;   // off by default - experimental, see D3DHook.h
+
 namespace
 {
     typedef HRESULT(__stdcall* EndScene_t)(IDirect3DDevice9*);
@@ -336,13 +338,8 @@ namespace
         }
     }
 
-    HRESULT __stdcall hkEndScene(IDirect3DDevice9* pDevice)
+    HRESULT __stdcall hkEndSceneInner(IDirect3DDevice9* pDevice)
     {
-        // Only one thread at a time may run the overlay: during loading / cut-scenes the game ends scenes from several threads
-        // (render thread, loading-movie thread) and the overlay and every tick below are not thread safe.
-        static volatile long busy = 0;
-        if (InterlockedCompareExchange(&busy, 1, 0) != 0) return oEndScene(pDevice);
-        struct Release { ~Release() { InterlockedExchange(&busy, 0); } } release;
         {
             static long total = 0, skipped = 0;
             ++total;
@@ -441,6 +438,57 @@ namespace
         return hr;
     }
 
+    // ---- experimental "don't let the main loop crash the game" wrapper (see D3DHook.h) ------------------------------
+    int g_mainLoopExceptionsCaught = 0;
+    char g_mainLoopExceptionStatus[160] = "";
+    DWORD g_lastExcCode = 0; void* g_lastExcAddr = nullptr;
+    int MainLoopExceptionFilter(EXCEPTION_POINTERS* ep)
+    {
+        g_lastExcCode = ep->ExceptionRecord->ExceptionCode;
+        g_lastExcAddr = ep->ExceptionRecord->ExceptionAddress;
+        return EXCEPTION_EXECUTE_HANDLER;
+    }
+
+    HRESULT hkEndSceneGuarded(IDirect3DDevice9* pDevice)
+    {
+        __try
+        {
+            return hkEndSceneInner(pDevice);
+        }
+        __except (MainLoopExceptionFilter(GetExceptionInformation()))
+        {
+            ++g_mainLoopExceptionsCaught;
+            snprintf(g_mainLoopExceptionStatus, sizeof(g_mainLoopExceptionStatus), "caught %08lX at %p (frame skipped, #%d)",
+                     g_lastExcCode, g_lastExcAddr, g_mainLoopExceptionsCaught);
+            LogF("hkEndScene: EXPERIMENTAL catch-all caught an exception - %s", g_mainLoopExceptionStatus);
+
+            // A crash loop (the same broken state faulting again every single frame) would otherwise hang here
+            // forever, silently, instead of the process just dying like it normally would - much worse than a
+            // crash. If catches are coming in far faster than real frames could produce them, stop intercepting:
+            // the next fault is then fatal again, same as if this feature had never been turned on.
+            static ULONGLONG windowStart = 0; static int inWindow = 0;
+            const ULONGLONG now = GetTickCount64();
+            if (now - windowStart > 1000) { windowStart = now; inWindow = 0; }
+            if (++inWindow > 30)
+            {
+                g_catchMainLoopExceptions = false;
+                LogF("hkEndScene: EXPERIMENTAL catch-all disabled itself - %d exceptions caught in under a second (probable crash loop)", inWindow);
+            }
+            return D3D_OK;
+        }
+    }
+
+    HRESULT __stdcall hkEndScene(IDirect3DDevice9* pDevice)
+    {
+        // Only one thread at a time may run the overlay: during loading / cut-scenes the game ends scenes from several threads
+        // (render thread, loading-movie thread) and the overlay and every tick below are not thread safe.
+        static volatile long busy = 0;
+        if (InterlockedCompareExchange(&busy, 1, 0) != 0) return oEndScene(pDevice);
+        const HRESULT hr = g_catchMainLoopExceptions ? hkEndSceneGuarded(pDevice) : hkEndSceneInner(pDevice);
+        InterlockedExchange(&busy, 0);
+        return hr;
+    }
+
     HRESULT __stdcall hkReset(IDirect3DDevice9* pDevice, D3DPRESENT_PARAMETERS* pParams)
     {
         PostFx::ReleaseDeviceObjects();
@@ -494,6 +542,9 @@ void HookDeviceVTable(IDirect3DDevice9* pDevice)
 
 void RequestFrameCapture() { if (g_capState == 0) { g_capState = 1; strcpy_s(g_capStatus, "armed: waiting for the next frame..."); } }
 const char* FrameCaptureStatus() { return g_capStatus; }
+
+int MainLoopExceptionsCaught() { return g_mainLoopExceptionsCaught; }
+const char* MainLoopExceptionStatus() { return g_mainLoopExceptionStatus; }
 
 bool GetCandidateViewProjMatrix(float outRowMajor16[16])
 {

@@ -20,6 +20,7 @@ namespace LoadGuard
         ULONGLONG g_slowSince = 0;          // when the world slow-down (TimeDilation != 1) began
         uintptr_t g_lastPawn = 0, g_lastWi = 0;
         float g_lastTime = 0.f;
+        float g_lastDil = 1.f;
         const char* g_reason = "starting";
 
         template <class T> bool Rd(uintptr_t a, T& out)
@@ -58,7 +59,7 @@ namespace LoadGuard
             else if (t + 0.5f < g_lastTime) { changed = true; g_reason = "world clock restarted"; }
             // The game slows the world down for its own cut-scenes / focus effects. That is not our slow motion cheat.
             if (BuiltinCheats::timeScale == 1.f && (dil < 0.98f || dil > 1.02f)) { slow = true; g_reason = "cut-scene / slow motion"; }
-            g_lastPawn = pawn; g_lastWi = wi; g_lastTime = t;
+            g_lastPawn = pawn; g_lastWi = wi; g_lastTime = t; g_lastDil = dil;
         }
         if (changed)
         {
@@ -92,4 +93,6 @@ namespace LoadGuard
         return g_quiet && u > now ? static_cast<int>((u - now + 999) / 1000) : 0;
     }
     const char* Reason() { return g_reason; }
+    float LastTimeDilation() { return g_lastDil; }
+    float LastTimeSeconds() { return g_lastTime; }
 }
