@@ -30,3 +30,15 @@ extern int g_skyMode;
 extern float g_shadowBiasScale, g_shadowSlopeScale;
 void RequestFrameCapture();
 const char* FrameCaptureStatus();
+
+// EXPERIMENTAL, Debug tab only (2026-09-25): wraps the game's own per-frame call (everything hkEndScene does,
+// including the real EndScene call into the game/engine itself) in a structured-exception __try/__except, so a
+// hardware exception there (an access violation, ...) is caught and that one frame is skipped instead of the whole
+// process dying. This does NOT fix whatever caused the fault or guarantee the game keeps working correctly
+// afterwards - it only stops that specific crash from being fatal; corrupted state can still show up as visual
+// glitches, a frozen screen, or a crash somewhere else next frame. Auto-disables itself (falls back to letting a
+// crash be a crash) if it has to catch an unreasonable number of exceptions in a short time, so a crash loop can't
+// hang the process forever silently.
+extern bool g_catchMainLoopExceptions;
+int MainLoopExceptionsCaught();      // total caught this session, for the UI
+const char* MainLoopExceptionStatus(); // last caught exception (code/address), or "" if none yet

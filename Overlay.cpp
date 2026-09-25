@@ -912,6 +912,33 @@ namespace Overlay
         ImGui::SliderFloat("Shadow depth bias x", &g_shadowBiasScale, 0.0f, 8.0f, "%.2f");
         ImGui::SliderFloat("Shadow slope bias x", &g_shadowSlopeScale, 0.0f, 8.0f, "%.2f");
         ImGui::TextDisabled("Scales the depth bias of the shadow map pass (1 = as the game does). Too low: striped / noisy shadows, too high: thin objects lose their shadow.");
+
+        ImGui::SeparatorText("Experimental / dangerous");
+        {
+            static bool wantConfirm = false;
+            bool enabled = g_catchMainLoopExceptions;
+            if (ImGui::Checkbox("Catch crashes in the main loop (Beta, VERY experimental)##catchmainloop", &enabled))
+            {
+                if (enabled && !g_catchMainLoopExceptions) wantConfirm = true;   // just turned ON: hold off and ask first
+                else { g_catchMainLoopExceptions = enabled; wantConfirm = false; }   // turning OFF needs no confirmation
+            }
+            ImGui::TextDisabled("Wraps the game's own per-frame code in a try/except, so a crash there is caught instead of closing the game.");
+            if (wantConfirm)
+            {
+                ImGui::TextColored(ImVec4(1.f, 0.35f, 0.3f, 1.f),
+                    "This does NOT fix whatever caused the crash - it only stops that one crash from being fatal. "
+                    "The game can carry on glitched, with corrupted state, frozen, or crash again a moment later anyway; "
+                    "a caught crash is not a safe crash. It gives up and lets a crash be a crash again if it has to catch "
+                    "too many exceptions too fast (a crash loop). Genuinely experimental - enable anyway?");
+                if (ImGui::Button("Yes, enable it anyway")) { g_catchMainLoopExceptions = true; wantConfirm = false; }
+                ImGui::SameLine();
+                if (ImGui::Button("Cancel##catchmainloop")) wantConfirm = false;
+            }
+            if (g_catchMainLoopExceptions || MainLoopExceptionsCaught() > 0)
+                ImGui::TextDisabled("Caught so far: %d%s%s", MainLoopExceptionsCaught(),
+                                     MainLoopExceptionStatus()[0] ? " - " : "", MainLoopExceptionStatus());
+        }
+
         ImGui::Text("Vehicle pointer (auto-detected): 0x%p", g_pVehicle);
         ImGui::Text("Old player pawn pointer (Mana hook): 0x%p", g_pPlayerPawn);
 
@@ -2600,6 +2627,7 @@ namespace Overlay
         ImGui::SetNextItemWidth(200); ImGui::SliderInt("Slow motion counts as a cut-scene after (s)", &LoadGuard::slowGraceSeconds, 1, 30);
         if (LoadGuard::Quiet()) ImGui::TextColored(ImVec4(1.f, 0.7f, 0.2f, 1.f), TR("quiet: %s, %d s left"), TR(LoadGuard::Reason()), LoadGuard::SecondsLeft());
         else ImGui::TextDisabled("active (the world is stable)");
+        if (debugEnabled) ImGui::TextDisabled("WorldInfo.TimeDilation (live, diagnostic): %.3f   TimeSeconds: %.2f", LoadGuard::LastTimeDilation(), LoadGuard::LastTimeSeconds());
         ImGui::SeparatorText("Hotkeys");
         {
             const int cap = Binds::SystemKeyCapturing();
@@ -3222,6 +3250,7 @@ namespace Overlay
         RegisterFloat("veh.topspeed", &VehicleMod::topSpeedMs);
         RegisterToggle("mission.antifail", "Mission: anti-fail", "Mission", &BuiltinCheats::antiFailMission);
         RegisterToggle("guard.enabled", "Loading protection: stay quiet while loading", "Settings", &LoadGuard::enabled);
+        RegisterToggle("debug.catchmainloop", "Debug: catch crashes in the main loop (VERY experimental)", "Debug", &g_catchMainLoopExceptions);
         RegisterToggle("cam.direct", "Camera: direct mouse camera", "Player", &MouseLook::enabled);
         RegisterFloat("cam.sens", &MouseLook::sensitivity);
         RegisterFloat("cam.aimscale", &MouseLook::aimScale);

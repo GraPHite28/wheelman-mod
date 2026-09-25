@@ -20,4 +20,6 @@ namespace LoadGuard
     bool Quiet();                    // true while the mod must stay away from the game; safe from any thread
     int SecondsLeft();               // remaining settle time, 0 when active
     const char* Reason();            // why the guard is quiet (for the UI)
+    float LastTimeDilation();        // WorldInfo.TimeDilation as last read (1 = normal, 0 = fully paused); for diagnostics
+    float LastTimeSeconds();         // WorldInfo.TimeSeconds as last read; for diagnostics - watch whether it keeps advancing
 }

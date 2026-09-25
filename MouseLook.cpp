@@ -24,6 +24,42 @@ namespace MouseLook
 
         bool Rd(uintptr_t a, int32_t& v) { __try { v = *reinterpret_cast<int32_t*>(a); return true; } __except (EXCEPTION_EXECUTE_HANDLER) { return false; } }
         bool Wr(uintptr_t a, int32_t v) { __try { *reinterpret_cast<int32_t*>(a) = v; return true; } __except (EXCEPTION_EXECUTE_HANDLER) { return false; } }
+        bool RdF(uintptr_t a, float& v) { __try { v = *reinterpret_cast<float*>(a); return true; } __except (EXCEPTION_EXECUTE_HANDLER) { return false; } }
+
+        // World-pause detection (2026-09-25, found live by the user): opening the PDA or the pause menu does NOT touch
+        // WorldInfo.TimeDilation (stays 1) - it freezes WorldInfo.TimeSeconds itself instead, unlike a loading screen
+        // or a cut-scene slow-motion, where TimeSeconds keeps advancing (just slower). Asymmetric debounce: entering
+        // "paused" only needs 2 consecutive unchanged reads (quick, so the cursor is handed back right away), but
+        // leaving it needs several consecutive TICKING reads in a row - found live, 2026-09-25: with a symmetric 1-2
+        // frame check on both sides, an occasional single stray tick of TimeSeconds while the PDA was still open
+        // flipped the detector back to "not paused" for one frame, which stole that frame's raw motion away from the
+        // PDA's own cursor (captured for MouseLook instead) and showed up as a jerky/stuttery PDA cursor.
+        float g_pauseLastTime = -1.f;
+        int g_pauseStillFrames = 0, g_pauseTickFrames = 0;
+        bool g_paused = false;
+        bool WorldPaused()
+        {
+            uintptr_t pawn = Overlay::GetPlayerPawn();
+            int32_t wi = 0;
+            if (!pawn || !Rd(pawn + 0x94, wi) || wi <= 0x10000 || wi >= 0x7FFF0000)
+            {
+                g_pauseStillFrames = g_pauseTickFrames = 0; g_pauseLastTime = -1.f; g_paused = false; return false;
+            }
+            float t = 0.f;
+            if (!RdF(static_cast<uintptr_t>(wi) + 0x31C, t)) { g_pauseStillFrames = g_pauseTickFrames = 0; return g_paused; }
+            if (t == g_pauseLastTime)
+            {
+                g_pauseTickFrames = 0;
+                if (g_pauseStillFrames < 1000 && ++g_pauseStillFrames >= 2) g_paused = true;
+            }
+            else
+            {
+                g_pauseLastTime = t;
+                g_pauseStillFrames = 0;
+                if (g_pauseTickFrames < 1000 && ++g_pauseTickFrames >= 4) g_paused = false;
+            }
+            return g_paused;
+        }
 
         void Deactivate()
         {
@@ -40,6 +76,12 @@ namespace MouseLook
         {
             Deactivate();
             status = !enabled ? "off" : suspended ? "suspended (mouse released to the game)" : "waiting (menu / loading)";
+            return;
+        }
+        if (WorldPaused())
+        {
+            Deactivate();
+            status = "suspended (PDA / menu open: the world is paused)";
             return;
         }
         uintptr_t mode = 0;
