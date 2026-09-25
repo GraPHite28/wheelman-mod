@@ -31,6 +31,20 @@ extern float g_shadowBiasScale, g_shadowSlopeScale;
 void RequestFrameCapture();
 const char* FrameCaptureStatus();
 
+// Frame debugger (2026-09-25): a home-grown, much smaller RenderDoc/PIX - those don't do D3D9 (RenderDoc dropped it
+// entirely, current PIX is D3D12-only), so this piggybacks on the same one-frame capture above. While it runs, a
+// small (160x90) downscaled copy of the render target is grabbed right after every draw call, kept as its own tiny
+// GPU texture - so once the capture finishes the Debug tab can show, for any draw call index, what the screen looked
+// like right after it, and you can step through the frame one draw at a time. Capped at kFrameThumbMax draw calls
+// (a very draw-heavy frame only gets thumbnails for the first that many; the full per-draw state list in
+// WheelmanMod_draws.txt still covers everything). A draw whose target isn't a StretchRect-copyable colour format
+// (shadow maps, the depth buffer itself, ...) just has no thumbnail for that slot - harmless, skipped.
+constexpr int kFrameThumbMax = 600;
+constexpr UINT kFrameThumbW = 320, kFrameThumbH = 180;   // only full-screen-sized draws are kept now, so 600 slots go a lot further
+int FrameThumbCount();                 // how many full-screen-sized draw calls got a thumbnail from the last capture (0 if none yet); smaller/differently-shaped off-screen passes (shadow maps, reflections, ...) are skipped entirely, so this is a gap-free, meaningful list
+int FrameThumbDrawIndex(int index);    // the real draw-call index (matches WheelmanMod_draws.txt) this thumbnail slot came from, -1 if out of range
+void* FrameThumbTexture(int index);    // LPDIRECT3DTEXTURE9 for that slot, or nullptr if out of range
+
 // EXPERIMENTAL, Debug tab only (2026-09-25): wraps the game's own per-frame call (everything hkEndScene does,
 // including the real EndScene call into the game/engine itself) in a structured-exception __try/__except, so a
 // hardware exception there (an access violation, ...) is caught and that one frame is skipped instead of the whole

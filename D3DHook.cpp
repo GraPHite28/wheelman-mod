@@ -181,6 +181,63 @@ namespace
     int g_capIndex = 0;
     char g_capStatus[96] = "idle";
 
+    // ---- frame debugger thumbnails (see D3DHook.h) --------------------------------------------------------------
+    // Found live, 2026-09-25: of ~900 draw calls in a real frame, ~560 came back as blank/uninteresting thumbnails -
+    // those are the off-screen passes (shadow maps, reflections, whatever else the game renders to a texture before
+    // compositing the final picture), which StretchRect happily copies but which mean nothing out of context. Tried
+    // filtering to only draws whose target IS the literal swap-chain back buffer surface (RenderTargetIsBackBuffer)
+    // - that caught ZERO of 1100 draws, meaning the game never draws the real scene straight onto that surface
+    // either: like this mod's own PostFx, it renders everything to an off-screen buffer of its own first and only
+    // reaches the true back buffer through something our DrawIndexedPrimitive/DrawPrimitive hooks don't see (a
+    // StretchRect-style blit, not a draw call). Filtering on exact identity can't work here - instead this keeps any
+    // draw whose target is the same WIDTH/HEIGHT as the display (captured once when the capture is armed): the
+    // game's main scene buffer, off-screen or not, is full-resolution, while shadow maps/reflections/other
+    // intermediate targets are a different (often square, e.g. 2048x2048) size - same style of heuristic PostFx's
+    // own IsSkyDome/shadow detection already uses elsewhere in this file. Kept as a GAP-FREE list (slot i is the i-th
+    // such draw, not draw-call index i) so the browsable range in the UI is exactly the real, meaningful ones - the
+    // original draw-call index (for cross-referencing WheelmanMod_draws.txt) is kept alongside each slot.
+    IDirect3DTexture9* g_thumbTex[kFrameThumbMax] = {};
+    IDirect3DSurface9* g_thumbSurf[kFrameThumbMax] = {};
+    int g_thumbDrawIndex[kFrameThumbMax] = {};   // which draw-call index (WheelmanMod_draws.txt) each slot came from
+    int g_thumbCollected = 0;                    // how many slots are filled while a capture is running
+    int g_thumbTotal = 0;                        // frozen count of the last finished capture (browsable range), 0 = none yet
+    UINT g_thumbTargetW = 0, g_thumbTargetH = 0;  // the display size a capture is filtering render targets against
+
+    void CaptureThumb(IDirect3DDevice9* dev, int drawIndex)
+    {
+        if (g_thumbCollected >= kFrameThumbMax) return;
+        const int slot = g_thumbCollected;
+        IDirect3DSurface9* rt = nullptr;
+        if (FAILED(dev->GetRenderTarget(0, &rt)) || !rt) return;
+        D3DSURFACE_DESC rd{};
+        if (FAILED(rt->GetDesc(&rd)) || rd.Width != g_thumbTargetW || rd.Height != g_thumbTargetH) { rt->Release(); return; }
+        if (!g_thumbTex[slot])
+        {
+            if (FAILED(dev->CreateTexture(kFrameThumbW, kFrameThumbH, 1, D3DUSAGE_RENDERTARGET, D3DFMT_A8R8G8B8, D3DPOOL_DEFAULT, &g_thumbTex[slot], nullptr)) || !g_thumbTex[slot])
+            { rt->Release(); return; }
+            g_thumbTex[slot]->GetSurfaceLevel(0, &g_thumbSurf[slot]);
+        }
+        if (SUCCEEDED(dev->StretchRect(rt, nullptr, g_thumbSurf[slot], nullptr, D3DTEXF_LINEAR)))
+        {
+            g_thumbDrawIndex[slot] = drawIndex;
+            ++g_thumbCollected;
+        }
+        rt->Release();
+    }
+
+    // D3DPOOL_DEFAULT resources (the thumbnails above) must be released before Device::Reset() or it fails/retries
+    // forever - found live, 2026-09-25: minimising the window (which triggers a Reset) hung, because these were
+    // never wired into the existing device-lost handling the way PostFx's own render targets already are.
+    void ReleaseFrameThumbs()
+    {
+        for (int i = 0; i < kFrameThumbMax; ++i)
+        {
+            if (g_thumbSurf[i]) { g_thumbSurf[i]->Release(); g_thumbSurf[i] = nullptr; }
+            if (g_thumbTex[i]) { g_thumbTex[i]->Release(); g_thumbTex[i] = nullptr; }
+        }
+        g_thumbCollected = 0; g_thumbTotal = 0;
+    }
+
     bool IsSkyDome(IDirect3DDevice9* dev, UINT primCount);
     void LogDraw(IDirect3DDevice9* dev, const char* kind, D3DPRIMITIVETYPE type, UINT count, INT baseVertex = 0, UINT numVertices = 0, UINT startIndex = 0)
     {
@@ -277,7 +334,9 @@ namespace
     HRESULT __stdcall hkDrawIndexedPrimitive(IDirect3DDevice9* self, D3DPRIMITIVETYPE type, INT baseVertex, UINT minVertex, UINT numVertices, UINT startIndex, UINT primCount)
     {
         PostFx::OnDraw(self);   // camera projection snapshot after a depth surface was bound; draw counter per depth surface
-        if (g_capState == 2) LogDraw(self, "DIP", type, primCount, baseVertex, numVertices, startIndex);
+        const bool capturing = g_capState == 2;
+        const int thumbIdx = capturing ? g_capIndex : -1;   // fixed before LogDraw's own post-increment of g_capIndex
+        if (capturing) LogDraw(self, "DIP", type, primCount, baseVertex, numVertices, startIndex);
         // Only the shadow map pass draws with a non-zero depth bias (every other pass in the capture has bias 0).
         if (g_shadowBiasScale != 1.0f || g_shadowSlopeScale != 1.0f)
         {
@@ -294,6 +353,7 @@ namespace
                 const HRESULT hr = oDrawIndexedPrimitive(self, type, baseVertex, minVertex, numVertices, startIndex, primCount);
                 self->SetRenderState(D3DRS_DEPTHBIAS, bias);
                 self->SetRenderState(D3DRS_SLOPESCALEDEPTHBIAS, slope);
+                if (capturing) CaptureThumb(self, thumbIdx);
                 return hr;
             }
         }
@@ -307,35 +367,60 @@ namespace
             const long index = InterlockedIncrement(&g_skyDrawsThisFrame);   // 1-based
             const long total = g_skyDrawsLastFrame;                          // how many domes the previous run had
             const bool draw = g_skyMode == 1 ? index == 1 : (total <= 1 || index >= total);
-            if (!draw) return D3D_OK;
+            if (!draw) { if (capturing) CaptureThumb(self, thumbIdx); return D3D_OK; }
         }
-        return oDrawIndexedPrimitive(self, type, baseVertex, minVertex, numVertices, startIndex, primCount);
+        const HRESULT hr = oDrawIndexedPrimitive(self, type, baseVertex, minVertex, numVertices, startIndex, primCount);
+        if (capturing) CaptureThumb(self, thumbIdx);
+        return hr;
     }
     HRESULT __stdcall hkDrawPrimitive(IDirect3DDevice9* self, D3DPRIMITIVETYPE type, UINT startVertex, UINT primCount)
     {
-        if (g_capState == 2) LogDraw(self, "DP ", type, primCount);
-        return oDrawPrimitive(self, type, startVertex, primCount);
+        const bool capturing = g_capState == 2;
+        const int thumbIdx = capturing ? g_capIndex : -1;
+        if (capturing) LogDraw(self, "DP ", type, primCount);
+        const HRESULT hr = oDrawPrimitive(self, type, startVertex, primCount);
+        if (capturing) CaptureThumb(self, thumbIdx);
+        return hr;
     }
 
-    // Frame boundary of the capture: armed -> starts at this frame end, capturing -> stops at the next one.
-    void CaptureFrameBoundary()
+    // Frame boundary of the capture. Split in two and called at opposite ends of hkEndSceneInner (see its two call
+    // sites) so the captured range is exactly one frame of the GAME's own draw calls - world and HUD - with none of
+    // the mod's own PostFx/overlay drawing at either end: found live, 2026-09-25, arming on entry (as a single
+    // function used to) meant capturing started with THIS frame's own leftover overlay/PostFx draws still to come,
+    // so the whole (capped) capture could fill up with nothing but the mod's own menu before any real game content
+    // ever got a look in. Stopping still happens on entry (before this frame's own overlay draws), starting now
+    // happens on exit (after this frame's own overlay draws, right before the real EndScene call) - so the window is
+    // [end of overlay drawing on the arming frame .. start of overlay drawing on the frame after that], which is
+    // exactly the next frame's real game rendering and nothing the mod itself drew.
+    void StopCaptureIfRunning()
     {
         // Only the frame that ends on the back buffer counts (this runs for it only); off-screen scene ends never reach here.
         if (g_skyDrawsThisFrame > 0) { g_skyDrawsLastFrame = g_skyDrawsThisFrame; g_skyDrawsThisFrame = 0; }
-        if (g_capState == 1)
+        if (g_capState != 2) return;
+        g_capState = 0;
+        if (g_capFile) { fprintf(g_capFile, "-- end of frame: %d draw calls\n", g_capIndex); fclose(g_capFile); g_capFile = nullptr; }
+        g_thumbTotal = g_thumbCollected;
+        snprintf(g_capStatus, sizeof(g_capStatus), "done: %d draw calls (%d full-screen with a thumbnail) in %%TEMP%%\\WheelmanMod_draws.txt%s",
+                 g_capIndex, g_thumbTotal, g_thumbCollected >= kFrameThumbMax ? " (thumbnails capped at 600)" : "");
+    }
+    void StartCaptureIfArmed(IDirect3DDevice9* dev)
+    {
+        if (g_capState != 1) return;
+        char path[MAX_PATH]; GetTempPathA(MAX_PATH, path); strcat_s(path, "WheelmanMod_draws.txt");
+        fopen_s(&g_capFile, path, "w");
+        g_capIndex = 0;
+        g_thumbTotal = 0;
+        g_thumbCollected = 0;   // textures themselves are kept and reused, just marked stale
+        g_thumbTargetW = g_thumbTargetH = 0;
+        IDirect3DSurface9* bb = nullptr;
+        if (SUCCEEDED(dev->GetBackBuffer(0, 0, D3DBACKBUFFER_TYPE_MONO, &bb)) && bb)
         {
-            char path[MAX_PATH]; GetTempPathA(MAX_PATH, path); strcat_s(path, "WheelmanMod_draws.txt");
-            fopen_s(&g_capFile, path, "w");
-            g_capIndex = 0;
-            if (g_capFile) { g_capState = 2; strcpy_s(g_capStatus, "capturing one frame..."); }
-            else { g_capState = 0; strcpy_s(g_capStatus, "cannot open the output file"); }
+            D3DSURFACE_DESC d{};
+            if (SUCCEEDED(bb->GetDesc(&d))) { g_thumbTargetW = d.Width; g_thumbTargetH = d.Height; }
+            bb->Release();
         }
-        else if (g_capState == 2)
-        {
-            g_capState = 0;
-            if (g_capFile) { fprintf(g_capFile, "-- end of frame: %d draw calls\n", g_capIndex); fclose(g_capFile); g_capFile = nullptr; }
-            snprintf(g_capStatus, sizeof(g_capStatus), "done: %d draw calls in %%TEMP%%\\WheelmanMod_draws.txt", g_capIndex);
-        }
+        if (g_capFile) { g_capState = 2; strcpy_s(g_capStatus, "capturing one frame..."); }
+        else { g_capState = 0; strcpy_s(g_capStatus, "cannot open the output file"); }
     }
 
     HRESULT __stdcall hkEndSceneInner(IDirect3DDevice9* pDevice)
@@ -349,7 +434,7 @@ namespace
                 return oEndScene(pDevice);
             }
         }
-        CaptureFrameBoundary();
+        StopCaptureIfRunning();
         GfxBoost::OnEndScene(pDevice);
         PostFx::Apply(pDevice);   // over the finished game frame, before the overlay is drawn
         EnsureImGuiInitialized(pDevice);
@@ -433,6 +518,7 @@ namespace
         ImGui::Render();
         ImGui_ImplDX9_RenderDrawData(ImGui::GetDrawData());
 
+        StartCaptureIfArmed(pDevice);   // after the mod's own drawing for THIS frame, so index 0 is the next frame's first real game draw
         HRESULT hr = oEndScene(pDevice);
         if (!quiet) Perf::Throttle();   // loading is not slowed down by the frame limiter
         return hr;
@@ -492,6 +578,8 @@ namespace
     HRESULT __stdcall hkReset(IDirect3DDevice9* pDevice, D3DPRESENT_PARAMETERS* pParams)
     {
         PostFx::ReleaseDeviceObjects();
+        ReleaseFrameThumbs();
+        if (g_capState != 0) { if (g_capFile) { fclose(g_capFile); g_capFile = nullptr; } g_capState = 0; strcpy_s(g_capStatus, "cancelled (device reset)"); }
         if (g_imguiInitialized)
             ImGui_ImplDX9_InvalidateDeviceObjects();
 
@@ -545,6 +633,14 @@ const char* FrameCaptureStatus() { return g_capStatus; }
 
 int MainLoopExceptionsCaught() { return g_mainLoopExceptionsCaught; }
 const char* MainLoopExceptionStatus() { return g_mainLoopExceptionStatus; }
+
+int FrameThumbCount() { return g_thumbTotal; }
+int FrameThumbDrawIndex(int index) { return (index < 0 || index >= g_thumbTotal) ? -1 : g_thumbDrawIndex[index]; }
+void* FrameThumbTexture(int index)
+{
+    if (index < 0 || index >= g_thumbTotal) return nullptr;
+    return g_thumbTex[index];
+}
 
 bool GetCandidateViewProjMatrix(float outRowMajor16[16])
 {
