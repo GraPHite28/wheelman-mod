@@ -904,6 +904,22 @@ namespace Overlay
         ImGui::SameLine();
         ImGui::TextDisabled("%s", FrameCaptureStatus());
         ImGui::TextDisabled("Writes states, shaders, textures and render targets of every draw call to %%TEMP%%\\WheelmanMod_draws.txt (used to fix the sky flicker and the shadows).");
+        if (FrameThumbCount() > 0)
+        {
+            static int selectedDraw = 0;
+            if (selectedDraw >= FrameThumbCount()) selectedDraw = FrameThumbCount() - 1;
+            ImGui::SetNextItemWidth(240); ImGui::SliderInt("Back-buffer draw##framedbg", &selectedDraw, 0, FrameThumbCount() - 1);
+            ImGui::SameLine();
+            if (ImGui::ArrowButton("##framedbgprev", ImGuiDir_Left) && selectedDraw > 0) --selectedDraw;
+            ImGui::SameLine();
+            if (ImGui::ArrowButton("##framedbgnext", ImGuiDir_Right) && selectedDraw < FrameThumbCount() - 1) ++selectedDraw;
+            ImGui::SameLine();
+            ImGui::TextDisabled("draw call #%d in WheelmanMod_draws.txt", FrameThumbDrawIndex(selectedDraw));
+            void* tex = FrameThumbTexture(selectedDraw);
+            if (tex) ImGui::Image(static_cast<ImTextureID>(reinterpret_cast<uintptr_t>(tex)), ImVec2(kFrameThumbW * 2.0f, kFrameThumbH * 2.0f));
+            else ImGui::TextDisabled("(no image)");
+            ImGui::TextDisabled("What the picture looked like right after this draw call - only full-screen-sized draws are listed (shadow maps, reflections and other differently-sized off-screen passes are skipped).");
+        }
         ImGui::Text("Sky flicker test:");
         ImGui::SameLine(); ImGui::RadioButton("As the game does##sky", &g_skyMode, 0);
         ImGui::SameLine(); ImGui::RadioButton("Only the first dome##sky", &g_skyMode, 1);
